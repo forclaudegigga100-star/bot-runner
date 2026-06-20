@@ -1,9 +1,9 @@
 import os
 import base64
 import logging
-import tempfile
 import subprocess
 import sys
+import re
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -11,54 +11,58 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def clean_code(code: str) -> str:
+    """Remove markdown code blocks if present"""
+    # Remove ```python or ``` at start
+    code = code.strip()
+    if code.startswith("```"):
+        # Remove first line (```python or ```)
+        lines = code.split('\n')
+        lines = lines[1:]  # Remove first line
+        # Remove last ``` if present
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        code = '\n'.join(lines)
+    return code.strip()
+
 def main():
-    # Get bot code from environment variable
     bot_code_b64 = os.getenv("BOT_CODE_B64")
     bot_token = os.getenv("BOT_TOKEN")
 
     if not bot_code_b64:
-        logger.error("BOT_CODE_B64 environment variable not set!")
+        logger.error("BOT_CODE_B64 not set!")
         sys.exit(1)
 
     if not bot_token:
-        logger.error("BOT_TOKEN environment variable not set!")
+        logger.error("BOT_TOKEN not set!")
         sys.exit(1)
 
     logger.info("Decoding bot code...")
-
-    # Decode base64 code
     try:
         bot_code = base64.b64decode(bot_code_b64).decode('utf-8')
     except Exception as e:
-        logger.error(f"Failed to decode bot code: {e}")
+        logger.error(f"Failed to decode: {e}")
         sys.exit(1)
 
-    # Write code to file
+    # Clean markdown backticks
+    bot_code = clean_code(bot_code)
+    logger.info(f"Code starts with: {bot_code[:50]}")
+
+    # Write to file
     bot_file = "/app/userbot.py"
     with open(bot_file, 'w') as f:
         f.write(bot_code)
 
-    logger.info(f"Bot code written to {bot_file}")
     logger.info("Starting bot...")
-
-    # Run the bot
     try:
-        exec(compile(bot_code, 'userbot.py', 'exec'), {
-            '__name__': '__main__',
-            'BOT_TOKEN': bot_token
-        })
-    except Exception as e:
-        logger.error(f"Bot execution error: {e}")
-        # Try running as subprocess instead
-        try:
-            result = subprocess.run(
-                [sys.executable, bot_file],
-                env={**os.environ, 'BOT_TOKEN': bot_token},
-                check=True
-            )
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Subprocess error: {e}")
-            sys.exit(1)
+        result = subprocess.run(
+            [sys.executable, bot_file],
+            env={**os.environ, 'BOT_TOKEN': bot_token},
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Bot error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
